@@ -4,6 +4,7 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <algorithm>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "MPC.h"
@@ -16,6 +17,9 @@ using json = nlohmann::json;
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
+
+// Some parameters
+constexpr double target_speed = 30;
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -69,7 +73,7 @@ int main() {
   uWS::Hub h;
 
   // MPC is initialized here!
-  MPC mpc;
+  MPC mpc(target_speed);
 
   h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -91,6 +95,8 @@ int main() {
           double py = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
+          double delta = j[1]["steering_angle"];
+          double a = j[1]["throttle"];
 
           /*
           * TODO: Calculate steering angle and throttle using MPC.
@@ -98,16 +104,56 @@ int main() {
           * Both are in between [-1, 1].
           *
           */
-          double steer_value;
-          double throttle_value;
+
+          // Convert ptsx and ptsy into car coordinates
+          // Note that we are also converting the containers from
+          // STL std::vector to Eigen::VectorXd
+          Eigen::VectorXd car_ptsx(ptsx.size());
+          Eigen::VectorXd car_ptsy(ptsy.size());
+          double cospsi = cos(-psi);
+          double sinpsi = sin(-psi);
+          for (size_t i=0; i<ptsx.size(); i++)
+          {
+            double x = ptsx[i] - px;
+            double y = ptsy[i] - py;
+            car_ptsx[i] = x * cospsi - y * sinpsi;
+            car_ptsy[i] = x * sinpsi + y * cospsi;
+          }
+          // Fit a polynomial to this vector to get the
+          // initial coefficients
+          Eigen::VectorXd coeffs =  polyfit(car_ptsx, car_ptsy, 3);
+
+          Eigen::VectorXd state(6);
+
+          // Build the initial state vector
+          // IMPORTANT!
+          // ***   All values are relative to the CAR position! ***
+          // that is why the initial x,y are always 0
+          // also psi is 0 because it's the direction the car is pointing
+          // thus the cte needs to recalculated as well as epsi
+          state[0] = 0;   // x
+          state[1] = 0;   // y
+          state[2] = 0;   // psi
+          state[3] = v;   // v
+          // These are simple to calculate since they all occur at x=0
+          // thus only the constant parameter is needed
+          state[4] = -coeffs[0];           // cte
+          state[5] = -atan(coeffs[1]);    // epsi
+          MPC   mpc(100);
+
+          std::vector<double> params = mpc.Solve(state, coeffs);
+
+
+          double steer_value = params[0];
+          double throttle_value = params[1];
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-          msgJson["steering_angle"] = steer_value;
+          msgJson["steering_angle"] = steer_value/deg2rad(25);
           msgJson["throttle"] = throttle_value;
 
-          //Display the MPC predicted trajectory 
+          //Display the MPC predicted trajectory
           vector<double> mpc_x_vals;
           vector<double> mpc_y_vals;
 
@@ -118,8 +164,8 @@ int main() {
           msgJson["mpc_y"] = mpc_y_vals;
 
           //Display the waypoints/reference line
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
+          vector<double> next_x_vals(&car_ptsx[0], car_ptsx.data() + car_ptsx.cols() * car_ptsx.rows());
+          vector<double> next_y_vals(&car_ptsy[0], car_ptsy.data() + car_ptsy.cols() * car_ptsy.rows());
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
@@ -139,7 +185,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100));
+          this_thread::sleep_for(chrono::milliseconds(0));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
