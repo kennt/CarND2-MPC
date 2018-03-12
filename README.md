@@ -111,7 +111,7 @@ Given the waypoints, a polynomial was fitted to the waypoints using the provide 
 
 (insert photo)
 
-To reduce this problem, I instead used a quadratic polynomial for fitting.  This would not be as an exact fit but is more stable and reduced the instability compared to the cubic.
+To reduce this problem, I instead used a quadratic polynomial for fitting.  This does result in a more inexact fit but is more stable and reduced the instability compared to the cubic.
 
 Also, the impact of the other hyperparameters (__N__ and __dt__) also helped to smooth out the curves as well as making the car take sharper turns.
 
@@ -179,5 +179,9 @@ Basically, we're taking our model equations given above, and running them for a 
 
 ## Results
 
-Video of car at 60
-Video of car at 120 (max speed reached was 107)
+I've managed to reach a top speed of 108mph. This is achieved on the second lap of a run (right at the end of the first bridge). This occurs  after the first run, since the car has to start from a high enough speed to be able to accelerate to 100mph before slowing down for the multiple turns.
+
+Video of car at a target speed of 120 (top speed reached was ~109)
+
+[Target speed = 120](./videos/target120.mp4)
+
