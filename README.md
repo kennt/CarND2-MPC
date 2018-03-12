@@ -107,9 +107,10 @@ These actually worked fine (at a target speed of 60 for my model). But as I trie
 
 ## Polynomial Fitting
 
-Given the waypoints, a polynomial was fitted to the waypoints using the provide `polyfit()` function.  Initially I used a cubic polynomial.  This would fit pretty well most of the time, but on some of the curves the polynomial would be very unstable.
+Given the waypoints, a polynomial was fitted to the waypoints using the provide `polyfit()` function.  Initially I used a cubic polynomial.  This would fit pretty well most of the time, but on some of the curves the polynomial would be very unstable (This usually happens on the 2nd or 3rd lap of the track).
 
-(insert photo)
+[Unstable turn with cubics](./videos/cubic.mp4)
+
 
 To reduce this problem, I instead used a quadratic polynomial for fitting.  This does result in a more inexact fit but is more stable and reduced the instability compared to the cubic.
 
@@ -181,7 +182,6 @@ Basically, we're taking our model equations given above, and running them for a 
 
 I've managed to reach a top speed of 108mph. This is achieved on the second lap of a run (right at the end of the first bridge). This occurs  after the first run, since the car has to start from a high enough speed to be able to accelerate to 100mph before slowing down for the multiple turns.
 
-Video of car at a target speed of 120 (top speed reached was ~109)
+Video of car at a target speed of 120 (top speed reached was ~109).  This is a video of a little more than 2 full laps.  The top speed is reached about 46 secs into the video.
 
 [Target speed = 120](./videos/target120.mp4)
-
