@@ -1,108 +1,183 @@
-# CarND-Controls-MPC
+# Model Predictive Control (MPC) Project Writeup
 Self-Driving Car Engineer Nanodegree Program
 
 ---
 
-## Dependencies
+This is the implementation of an MPC controller for the Udacity Self-Driving Car Engineer Nanodegree Program.
 
-* cmake >= 3.5
- * All OSes: [click here for installation instructions](https://cmake.org/install/)
-* make >= 4.1(mac, linux), 3.81(Windows)
-  * Linux: make is installed by default on most Linux distros
-  * Mac: [install Xcode command line tools to get make](https://developer.apple.com/xcode/features/)
-  * Windows: [Click here for installation instructions](http://gnuwin32.sourceforge.net/packages/make.htm)
-* gcc/g++ >= 5.4
-  * Linux: gcc / g++ is installed by default on most Linux distros
-  * Mac: same deal as make - [install Xcode command line tools]((https://developer.apple.com/xcode/features/)
-  * Windows: recommend using [MinGW](http://www.mingw.org/)
-* [uWebSockets](https://github.com/uWebSockets/uWebSockets)
-  * Run either `install-mac.sh` or `install-ubuntu.sh`.
-  * If you install from source, checkout to commit `e94b6e1`, i.e.
-    ```
-    git clone https://github.com/uWebSockets/uWebSockets
-    cd uWebSockets
-    git checkout e94b6e1
-    ```
-    Some function signatures have changed in v0.14.x. See [this PR](https://github.com/udacity/CarND-MPC-Project/pull/3) for more details.
+## Model Description
 
-* **Ipopt and CppAD:** Please refer to [this document](https://github.com/udacity/CarND-MPC-Project/blob/master/install_Ipopt_CppAD.md) for installation instructions.
-* [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page). This is already part of the repo so you shouldn't have to worry about it.
-* Simulator. You can download these from the [releases tab](https://github.com/udacity/self-driving-car-sim/releases).
-* Not a dependency but read the [DATA.md](./DATA.md) for a description of the data sent back from the simulator.
+### State variables
+The state vector contains six variables:
+
+* __x__ - the x position of the car, relative to the current position of the car.
+* __y__ - the y position of the car, relative to the current position of the car
+* __psi__ - this is a measurement of the yaw, relative to the current position of the car.
+* __v__ - this is the velocity of the car
+* __cte__ - this is the Cross Track Error. For this model, this is the difference in the y coordinate between the current position and the desired position.
+* __epsi__ - this is the error in psi (the yaw) between the current yaw and the desired yaw.
 
 
-## Basic Build Instructions
+### Actuator variables
+We also have two actuators:
 
-1. Clone this repo.
-2. Make a build directory: `mkdir build && cd build`
-3. Compile: `cmake .. && make`
-4. Run it: `./mpc`.
+* __delta__ - this is the change applied to the steering (__psi__)
+* __a__ - this is the change applied to the throttle (__v__)
 
-## Tips
 
-1. It's recommended to test the MPC on basic examples to see if your implementation behaves as desired. One possible example
-is the vehicle starting offset of a straight line (reference). If the MPC implementation is correct, after some number of timesteps
-(not too many) it should find and track the reference line.
-2. The `lake_track_waypoints.csv` file has the waypoints of the lake track. You could use this to fit polynomials and points and see of how well your model tracks curve. NOTE: This file might be not completely in sync with the simulator so your solution should NOT depend on it.
-3. For visualization this C++ [matplotlib wrapper](https://github.com/lava/matplotlib-cpp) could be helpful.)
-4.  Tips for setting up your environment are available [here](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/0949fca6-b379-42af-a919-ee50aa304e6a/lessons/f758c44c-5e40-4e01-93b5-1a82aa4e044f/concepts/23d376c7-0195-4276-bdf0-e02f1f3c665d)
-5. **VM Latency:** Some students have reported differences in behavior using VM's ostensibly a result of latency.  Please let us know if issues arise as a result of a VM environment.
+### Model parameters
+Some other model parameters (these are hyperparameters that are defined outside of the model).
 
-## Editor Settings
+* __dt__ - the elapsed time for each model step
+* __N__ - the total number of steps
+* __Lf__ - distance from the center of mass of the car to the front axle (experimentally derived for this project and was provided to us).
 
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
+### Model equations
+The equations used to update the model
+(Note that values such as x0 indicate the state at time t and x1 indicate the state at time t+1).
 
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
+```
+// Some helper values
+// f0 is the value of the desired curve, evaluated at x0
+f0 = f(x0)
 
-## Code Style
+// deriv0 is the value of the first derivative of the desired
+// curve, evaluated at x0
+deriv0 = f'(x0)
+psides0 = atan(deriv0)
 
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
+x1 = x0 + v0 * cos(psi0) * dt
+y1 = y0 + v0 * sin(psi0) * dt
+psi1 = psi0 - v0 * delta0 / Lf * dt
+v1 = v0 + v0 * a0 * dt
+cte1 = (y0 - f0) + v0 * sin(epsi0) * dt
+epsi1 = (psi0 - psides0) + v0 * delta0 / Lf * dt;
+```
 
-## Project Instructions and Rubric
+This are the model equations.  The solver will attempt to minimize a
+cost function by manipulating the actuators (__delta__ and __a__). The cost function used is discussed later.
 
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
+## Cost Function
+The basic cost function is provided here.  Note that the individual components of the cost function are weighted.  The initial values for the weights were taken from the Q&A session for this project.
 
-More information is only accessible by people who are already enrolled in Term 2
-of CarND. If you are enrolled, see [the project page](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/f1820894-8322-4bb3-81aa-b26b3c6dcbaf/lessons/b1ff3be0-c904-438e-aad3-2b5379f0e0c3/concepts/1a2255a0-e23c-44cf-8d41-39b8a3c8264a)
-for instructions and the project rubric.
+Initial values:
 
-## Hints!
+* __CTE__ : 2000
+* __EPSI__ : 2000
+* __v__ : 1
+* __delta__ : 5
+* __a__ : 5
+* __delta change__ : 200
+* __a change__ : 10
 
-* You don't have to follow this directory structure, but if you do, your work
-  will span all of the .cpp files here. Keep an eye out for TODOs.
+These actually worked fine (at a target speed of 60 for my model). But as I tried higher speeds the car would start to miss some turns, so I increased the CTE and EPSI weights.  So I increased those two values to 3000. 
 
-## Call for IDE Profiles Pull Requests
+```
+    // Initialize the cost
+    fg[0] = 0.0;
 
-Help your fellow students!
+    for (int t=0; t < N; t++)
+    {
+      // Penalize failure to meet reference state
+      // Add a penalty for any CTE
+      fg[0] += 3000 * CppAD::pow(vars[cte_start+t], 2);
 
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to we ensure
-that students don't feel pressured to use one IDE or another.
+      // Add a penalty for deviation in the angle
+      fg[0] += 3000 * CppAD::pow(vars[epsi_start+t], 2);
 
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
+      // Add a penalty for failing to meet the target speed
+      fg[0] += 1 * CppAD::pow(vars[v_start+t] - target_v, 2);
+    }
 
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
+    // Actuator cost penalty
+    for (int t=0; t < N-1; t++)
+    {
+      fg[0] += 5 * CppAD::pow(vars[delta_start + t], 2);
+      fg[0] += 5 * CppAD::pow(vars[a_start + t], 2);
+    }
 
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
+    // Try to minimize the actuator jumps
+    for (int t=0; t < N-2; t++)
+    {
+      fg[0] += 200 * CppAD::pow(vars[delta_start+t+1] - vars[delta_start+t], 2);
+      fg[0] += 10 * CppAD::pow(vars[a_start+t+1] - vars[a_start+t], 2);
+    }
 
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
+```
 
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
+## Polynomial Fitting
 
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
+Given the waypoints, a polynomial was fitted to the waypoints using the provide `polyfit()` function.  Initially I used a cubic polynomial.  This would fit pretty well most of the time, but on some of the curves the polynomial would be very unstable.
+
+(insert photo)
+
+To reduce this problem, I instead used a quadratic polynomial for fitting.  This would not be as an exact fit but is more stable and reduced the instability compared to the cubic.
+
+Also, the impact of the other hyperparameters (__N__ and __dt__) also helped to smooth out the curves as well as making the car take sharper turns.
+
+## Timestep Length (N) and Elapsed Duration (dt)
+
+My initial values were
+
+* __N__ = 10 and __dt__ = 0.1
+
+I didn't have that much problem at this point. But I tried other settings to test the impact:
+
+* __N__ = 20 and __dt__ = 0.1
+
+With a longer timestep length, this helped to smooth the curve that the car took, but also increased the amount of processing needed.
+
+* __N__ = 10 and __dt__ = 0.05
+
+This __dt__ is less than the latency and the car was very unstable, causing the car to go off the track pretty early in the run.
+
+* __N__ = 20 and __dt__ = 0.2
+
+Given the duration length (__dt__), this caused the car to take some of the turns sharper (the car turned into the turn earlier).  On some of the sharper turns this would cause the car to run over the edge.
+
+After some trial and error, I found that __N__ = 12 and __dt__ = 0.11 works well.  I increased __N__ to smooth out the curve.  I also increased __dt__ slightly so that the car would be a little more aggressive when taking the turns (0.15 was still too aggressive, but 0.11 seems to work well).
+
+## MPC Preprocessing
+
+The only preprocessing we do is to convert the waypoints from global (map) coordinates into local (car) coordinates.
+
+It's easier to do the calculations in car coordinates.  Doing this makes a lot of the starting values 0, because the value are relative to the car's position (for example, x0 = y0 = psi0 = 0).
+
+We do a translation by (-px, -py), px and py are the global coordinates of the car at the current time.  We then do a rotation by -psi to orient the car along the x axis.
+
+```
+          double cospsi = cos(-psi);
+          double sinpsi = sin(-psi);
+          for (size_t i=0; i<ptsx.size(); i++)
+          {
+            double x = ptsx[i] - px;
+            double y = ptsy[i] - py;
+            car_ptsx[i] = x * cospsi - y * sinpsi;
+            car_ptsy[i] = x * sinpsi + y * cospsi;
+          }
+```
+
+## Latency
+
+We also incorporate the actuator latency into the system.
+
+We do this by pushing the state of the system 100ms (the latency) into the future.  From our starting point (x=0, y=0, from the car's point of view), we assume a constant velocity, recalculate our initial state, and then solve the model from that point on.
+
+Basically, we're taking our model equations given above, and running them for a 100ms, and using that as our initial starting point.
+
+```
+          double x_latency = v * cos(delta) * latency_secs;
+          double y_latency = v * sin(delta) * latency_secs;
+          double psi_latency = -v * delta * latency_secs / Lf;
+          
+          // evaluate the polynomial at x_latency
+          double cte_latency = -polyeval(coeffs, x_latency);
+          
+          // evaluate the 1st derivative of the polynomial at x_latency
+          double epsi_latency = -atan(deriveval(coeffs, x_latency));
+```
+
+## Results
+
+Video of car at 60
+Video of car at 120 (max speed reached was 107)

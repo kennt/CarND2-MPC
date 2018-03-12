@@ -18,9 +18,6 @@ constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
-// Some parameters
-constexpr double target_speed = 30;
-
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -36,7 +33,7 @@ string hasData(string s) {
   return "";
 }
 
-// Evaluate a polynomial.
+// Evaluate a polynomial (with coeffs) at a point x
 double polyeval(Eigen::VectorXd coeffs, double x) {
   double result = 0.0;
   for (int i = 0; i < coeffs.size(); i++) {
@@ -45,6 +42,14 @@ double polyeval(Eigen::VectorXd coeffs, double x) {
   return result;
 }
 
+// Evaluate the first deriviative of a polynomial (with coeffs) at a point x
+double deriveval(Eigen::VectorXd coeffs, double x){
+  double result = 0.0;
+  for (int i = 1; i < coeffs.size(); i++) {
+    result += i * coeffs[i] * pow(x, i-1);
+  }
+  return result;
+}
 // Fit a polynomial.
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
@@ -105,7 +110,11 @@ int main() {
           *
           */
 
-          // Convert ptsx and ptsy into car coordinates
+          /*
+          * Data Preprocessing
+          * Convert the waypoints from global coordinates into
+          * car coordinates.
+          */
           // Note that we are also converting the containers from
           // STL std::vector to Eigen::VectorXd
           Eigen::VectorXd car_ptsx(ptsx.size());
@@ -119,47 +128,42 @@ int main() {
             car_ptsx[i] = x * cospsi - y * sinpsi;
             car_ptsy[i] = x * sinpsi + y * cospsi;
           }
-          // Fit a polynomial to this vector to get the
-          // initial coefficients
-          Eigen::VectorXd coeffs =  polyfit(car_ptsx, car_ptsy, 3);
 
+          /*
+          * Polynomial fitting
+          * Fit a polynomial to this vector to get the initial coefficients
+          */
+          Eigen::VectorXd coeffs =  polyfit(car_ptsx, car_ptsy, 2);
           Eigen::VectorXd state(6);
 
-          // Build the initial state vector
-          // IMPORTANT!
-          // ***   All values are relative to the CAR position! ***
-          // that is why the initial x,y are always 0
-          // also psi is 0 because it's the direction the car is pointing
-          // thus the cte needs to recalculated as well as epsi
-          state[0] = 0;   // x
-          state[1] = 0;   // y
-          state[2] = 0;   // psi
-          state[3] = v;   // v
-          // These are simple to calculate since they all occur at x=0
-          // thus only the constant parameter is needed
-          state[4] = -coeffs[0];           // cte
-          state[5] = -atan(coeffs[1]);    // epsi
-          MPC   mpc(100);
+          /*
+          * Incorporate latency into the model
+          * Build the initial state vector
+          * The latency effects are incorporated into the initial state vector.
+          */
+          double x_latency = v * cos(delta) * latency_secs;
+          double y_latency = v * sin(delta) * latency_secs;
+          double psi_latency = -v * delta * latency_secs / Lf;
+          double cte_latency = -polyeval(coeffs, x_latency);
+          double epsi_latency = -atan(deriveval(coeffs, x_latency));
 
+          state << x_latency, y_latency, psi_latency, v, cte_latency, epsi_latency;
+
+          /*
+          * Run the solver.
+          */
           std::vector<double> params = mpc.Solve(state, coeffs);
 
-
-          double steer_value = params[0];
-          double throttle_value = params[1];
-
           json msgJson;
+          double steer_value = params[0];
+
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
           msgJson["steering_angle"] = steer_value/deg2rad(25);
-          msgJson["throttle"] = throttle_value;
 
-          //Display the MPC predicted trajectory
-          vector<double> mpc_x_vals;
-          vector<double> mpc_y_vals;
-
-          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-          // the points in the simulator are connected by a Green line
-
+          //Extract the x,y values and display the MPC predicted trajectory
+          vector<double> mpc_x_vals(&params[2], &params[2+N]);
+          vector<double> mpc_y_vals(&params[2+N], &params[2+2*N]);
           msgJson["mpc_x"] = mpc_x_vals;
           msgJson["mpc_y"] = mpc_y_vals;
 
@@ -169,10 +173,23 @@ int main() {
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
-
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
+          double throttle_value = params[1];
+#if 0
+          // Use this to turn down the throttle in a tight turn
+          if (v > 20) {
+            // Depending on the steer value, adjust the throttle
+            // (the tighter the turn the less throttle)
+            // throttle-steer curve
+            //                            0     1     2     3     4     5     6     7      8       9       10
+            double throttle_adjust[] = { 1.00, 1.00, 0.70, 0.50, 0.30, 0.10, 0.03, -0.001, -0.002, -0.003, -0.007 };
+            double constrained_steer_value = steer_value/deg2rad(25);
+            throttle_value *= throttle_adjust[static_cast<int>(fabs(constrained_steer_value*10))];
+          }
+#endif
+          msgJson["throttle"] = throttle_value;
 
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
@@ -185,7 +202,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(0));
+          this_thread::sleep_for(chrono::milliseconds(100));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {

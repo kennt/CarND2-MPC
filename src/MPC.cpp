@@ -5,23 +5,6 @@
 
 using CppAD::AD;
 
-// TODO: Set the timestep length and duration
-// Projects : N*dt seconds ahead
-//  N is # iterations
-//  dt is seconds/iteration
-constexpr size_t N = 10;
-constexpr double dt = 0.1;
-
-// State variables
-// ========
-// Length of state vector
-//  x, y, psi, v, cte, epsi
-constexpr size_t STATE_SIZE = 6;
-
-// Length of the actuator vector (# of actuators)
-//  delta, a
-constexpr size_t ACTUATOR_SIZE = 2;
-
 //
 // position variables (index into the vars array) based on N
 // NOTE: This assumes a certain layout of the vars array.
@@ -35,19 +18,6 @@ constexpr size_t epsi_start = cte_start + N;
 constexpr size_t delta_start = epsi_start + N;
 constexpr size_t a_start = delta_start + N - 1;
 
-
-
-// This value assumes the model presented in the classroom is used.
-//
-// It was obtained by measuring the radius formed by running the vehicle in the
-// simulator around in a circle with a constant steering angle and velocity on a
-// flat terrain.
-//
-// Lf was tuned until the the radius formed by the simulating the model
-// presented in the classroom matched the previous radius.
-//
-// This is the length from front to CoG that has a similar radius.
-const double Lf = 2.67;
 
 class FG_eval {
  public:
@@ -100,10 +70,10 @@ class FG_eval {
     {
       // Penalize failure to meet reference state
       // Add a penalty for any CTE
-      fg[0] += 1500 * CppAD::pow(vars[cte_start+t], 2);
+      fg[0] += 3000 * CppAD::pow(vars[cte_start+t], 2);
 
       // Add a penalty for deviation in the angle
-      fg[0] += 30 * CppAD::pow(vars[epsi_start+t], 2);
+      fg[0] += 3000 * CppAD::pow(vars[epsi_start+t], 2);
 
       // Add a penalty for failing to meet the target speed
       fg[0] += CppAD::pow(vars[v_start+t] - target_v, 2);
@@ -112,15 +82,15 @@ class FG_eval {
     // Actuator cost penalty
     for (int t=0; t < N-1; t++)
     {
-      fg[0] += 1 * CppAD::pow(vars[delta_start + t], 2);
-      fg[0] += 1 * CppAD::pow(vars[a_start + t], 2);
+      fg[0] += 5 * CppAD::pow(vars[delta_start + t], 2);
+      fg[0] += 5 * CppAD::pow(vars[a_start + t], 2);
     }
 
     // Try to minimize the actuator jumps
     for (int t=0; t < N-2; t++)
     {
-      fg[0] += 20 * CppAD::pow(vars[delta_start+t+1] - vars[delta_start+t], 2);
-      fg[0] += CppAD::pow(vars[a_start+t+1] - vars[a_start+t], 2);
+      fg[0] += 200 * CppAD::pow(vars[delta_start+t+1] - vars[delta_start+t], 2);
+      fg[0] += 10 * CppAD::pow(vars[a_start+t+1] - vars[a_start+t], 2);
     }
 
 
@@ -347,5 +317,27 @@ vector<double> MPC::Solve(Eigen::VectorXd initial_state, Eigen::VectorXd coeffs)
   //
   // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
   // creates a 2 element double vector.
-  return { solution.x[delta_start], solution.x[a_start] };
+
+  // Also, return the predicted x,y values
+  // So the vector contains:
+  //  [0] actuator: delta
+  //  [1] actuator: a
+  //  [2] x[0]
+  //  [3] x[1]
+  //  ...  (rest of the x values)
+  //  [2+N]   y[0]
+  //  [2+N+1] y[1]
+  //  ...  (rest of the y values)
+  //
+  vector<double> result(2 + 2*N);
+  result[0] = solution.x[delta_start];
+  result[1] = solution.x[a_start];
+
+  for (size_t i=0; i<N; i++)
+  {
+    result[2 + i] = solution.x[x_start+i];
+    result[2 + N + i] = solution.x[y_start+i];
+  }
+
+  return result;
 }
